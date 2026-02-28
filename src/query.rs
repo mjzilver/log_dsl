@@ -97,24 +97,24 @@ pub async fn read_file_task(
             let line_start_offset = current_pos;
             current_pos += line_len;
 
-            if let Ok(line_str) = String::from_utf8(line_bytes) {
-                if let Ok(log_line) = serde_json::from_str::<LogMessage>(line_str.trim()) {
-                    let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+            if let Ok(line_str) = String::from_utf8(line_bytes)
+                && let Ok(log_line) = serde_json::from_str::<LogMessage>(line_str.trim())
+            {
+                let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
 
-                    let log = ParsedLog {
-                        id,
-                        offset: line_start_offset,
-                        log: log_line,
-                    };
+                let log = ParsedLog {
+                    id,
+                    offset: line_start_offset,
+                    log: log_line,
+                };
 
-                    {
-                        let mut meta = metadata.write().await;
-                        meta.last_offset = current_pos;
-                        meta.last_id = id;
-                    }
-
-                    let _ = tx.send(log).await;
+                {
+                    let mut meta = metadata.write().await;
+                    meta.last_offset = current_pos;
+                    meta.last_id = id;
                 }
+
+                let _ = tx.send(log).await;
             }
         }
     }

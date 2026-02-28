@@ -66,10 +66,7 @@ pub async fn load_index_file<T: for<'de> DeserializeOwned + Eq + Hash>(
             let mut decompressed = Vec::new();
 
             std::io::copy(&mut decoder, &mut decompressed)?;
-            let map = match postcard::from_bytes(&decompressed) {
-                Ok(m) => m,
-                Err(_) => HashMap::new(),
-            };
+            let map = postcard::from_bytes(&decompressed).unwrap_or_default();
 
             Ok(map)
         }
