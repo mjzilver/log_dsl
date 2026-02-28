@@ -1,8 +1,13 @@
 use std::{
-    borrow::Borrow, collections::HashMap, fmt::{self, Display, Formatter}, hash::Hash, io::SeekFrom, sync::{
+    borrow::Borrow,
+    collections::HashMap,
+    fmt::{self, Display, Formatter},
+    hash::Hash,
+    io::{SeekFrom, Write},
+    sync::{
         Arc,
         atomic::{AtomicU64, Ordering},
-    }
+    },
 };
 
 use chrono::{DateTime, Utc};
@@ -16,6 +21,7 @@ use tokio::{
         mpsc::{self, Receiver, Sender},
     },
 };
+use zstd::{Decoder, Encoder};
 
 #[derive(Deserialize)]
 pub struct LogMessage {
@@ -149,8 +155,13 @@ async fn write_index_file_to_disk<T: Serialize>(
         .open(filename)
         .await?;
 
-    let bytes = serde_json::to_vec(indices).expect("Failed to serialize indices");
-    file.write_all(&bytes).await?;
+    let bytes = postcard::to_stdvec(indices).expect("Failed to serialize indices");
+
+    let mut encoder = Encoder::new(Vec::new(), 3)?;
+    encoder.write_all(&bytes)?;
+    let compressed = encoder.finish()?;
+
+    file.write_all(&compressed).await?;
     file.flush().await?;
 
     Ok(())
@@ -181,12 +192,18 @@ async fn write_periodically(indices: Arc<RwLock<Indices>>, metadata: Arc<RwLock<
     }
 }
 
-async fn load_index_file<T: for<'de> Deserialize<'de> + Eq +  Hash>(
+async fn load_index_file<T: for<'de> Deserialize<'de> + Eq + Hash>(
     filename: &str,
 ) -> io::Result<HashMap<T, Vec<u64>>> {
     match tokio::fs::read(filename).await {
         Ok(bytes) => {
-            let map = serde_json::from_slice::<HashMap<T, Vec<u64>>>(&bytes).unwrap_or_default();
+            let mut decoder = Decoder::new(&bytes[..]).expect("Decoder failed");
+            let mut decompressed = Vec::new();
+            
+            std::io::copy(&mut decoder, &mut decompressed).expect("Decompression failed");
+
+            let map = postcard::from_bytes(&decompressed).unwrap_or_else(|_| HashMap::new());
+
             Ok(map)
         }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(HashMap::new()),
@@ -254,11 +271,7 @@ async fn find_logs_by_offsets(offsets: &Vec<u64>) -> io::Result<Vec<String>> {
     Ok(res)
 }
 
-
-async fn query<K, Q>(
-    indices: &HashMap<K, Vec<u64>>,
-    needle: &Q,
-)
+async fn query<K, Q>(indices: &HashMap<K, Vec<u64>>, needle: &Q)
 where
     K: Eq + Hash + Borrow<Q>,
     Q: Eq + Hash + ?Sized,
