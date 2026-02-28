@@ -3,11 +3,12 @@ use crate::indices::Indices;
 use crate::metadata::{Metadata, NEXT_ID};
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
-use std::fmt::{self, Display, Formatter};
+use std::borrow::Borrow;
+use std::collections::{BTreeSet, HashMap};
+use std::hash::Hash;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
-use std::{borrow::Borrow, collections::HashMap, hash::Hash};
 use tokio::io::AsyncSeekExt;
 use tokio::time;
 
@@ -32,8 +33,8 @@ pub struct ParsedLog {
     pub log: LogMessage,
 }
 
-impl Display for LogMessage {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+impl std::fmt::Display for LogMessage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
             "LogLine ({} - {} - {})",
@@ -42,10 +43,7 @@ impl Display for LogMessage {
     }
 }
 
-pub async fn receive_log_task(
-    mut rx: Receiver<ParsedLog>,
-    indices: std::sync::Arc<RwLock<Indices>>,
-) {
+pub async fn receive_log_task(mut rx: Receiver<ParsedLog>, indices: Arc<RwLock<Indices>>) {
     while let Some(parsed_log) = rx.recv().await {
         let log = &parsed_log.log;
         let idx = parsed_log.offset;
@@ -55,18 +53,18 @@ pub async fn receive_log_task(
             .levels
             .entry(log.level.clone())
             .or_default()
-            .push(idx);
+            .insert(idx);
 
         for word in log.message.split_whitespace() {
             indices
                 .words
                 .entry(word.to_lowercase())
                 .or_default()
-                .push(idx);
+                .insert(idx);
         }
 
         let ts = log.timestamp.timestamp();
-        indices.timestamps.entry(ts).or_default().push(idx);
+        indices.timestamps.entry(ts).or_default().insert(idx);
     }
 }
 
@@ -99,58 +97,56 @@ pub async fn read_file_task(
             let line_start_offset = current_pos;
             current_pos += line_len;
 
-            if let Ok(line_str) = String::from_utf8(line_bytes)
-                && let Ok(log_line) = serde_json::from_str::<LogMessage>(line_str.trim())
-            {
-                let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+            if let Ok(line_str) = String::from_utf8(line_bytes) {
+                if let Ok(log_line) = serde_json::from_str::<LogMessage>(line_str.trim()) {
+                    let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
 
-                let log = ParsedLog {
-                    id,
-                    offset: line_start_offset,
-                    log: log_line,
-                };
+                    let log = ParsedLog {
+                        id,
+                        offset: line_start_offset,
+                        log: log_line,
+                    };
 
-                {
-                    let mut meta = metadata.write().await;
-                    meta.last_offset = current_pos;
-                    meta.last_id = id;
+                    {
+                        let mut meta = metadata.write().await;
+                        meta.last_offset = current_pos;
+                        meta.last_id = id;
+                    }
+
+                    let _ = tx.send(log).await;
                 }
-
-                let _ = tx.send(log).await;
             }
         }
     }
 }
 
-pub async fn find_logs_by_offsets(offsets: &[u64]) -> Result<Vec<String>, LogQueryError> {
-    let mut offsets = offsets.to_vec();
-    offsets.sort();
-
+pub async fn find_logs_by_offsets(offsets: &BTreeSet<u64>) -> Result<Vec<String>, LogQueryError> {
     let mut res = Vec::new();
+    let mut iter = offsets.iter();
+    let mut current_target = match iter.next() {
+        Some(&v) => v,
+        None => return Ok(res),
+    };
+
     let file = File::open("./bot.log").await?;
     let mut reader = BufReader::new(file);
 
     let mut current_offset = 0u64;
-    let mut offset_index = 0;
-
     let mut line = Vec::new();
 
     while reader.read_until(b'\n', &mut line).await? > 0 {
-        if offset_index >= offsets.len() {
-            break;
-        }
-
         let line_start = current_offset;
         let line_end = current_offset + line.len() as u64;
 
-        while offset_index < offsets.len()
-            && offsets[offset_index] >= line_start
-            && offsets[offset_index] < line_end
-        {
+        while current_target >= line_start && current_target < line_end {
             if let Ok(line_str) = String::from_utf8(line.clone()) {
                 res.push(line_str.trim().to_string());
             }
-            offset_index += 1;
+            if let Some(&next) = iter.next() {
+                current_target = next;
+            } else {
+                return Ok(res);
+            }
         }
 
         current_offset = line_end;
@@ -160,7 +156,7 @@ pub async fn find_logs_by_offsets(offsets: &[u64]) -> Result<Vec<String>, LogQue
     Ok(res)
 }
 
-pub async fn query<K, Q>(indices: &HashMap<K, Vec<u64>>, needle: &Q)
+pub async fn query<K, Q>(indices: &HashMap<K, BTreeSet<u64>>, needle: &Q)
 where
     K: Eq + Hash + Borrow<Q>,
     Q: Eq + Hash + ?Sized,

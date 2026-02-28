@@ -2,7 +2,13 @@ use crate::error::LogQueryError;
 use crate::metadata::{Metadata, save_metadata};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-use std::{collections::HashMap, hash::Hash, io::Write, sync::Arc, time::Duration};
+use std::{
+    collections::{BTreeSet, HashMap},
+    hash::Hash,
+    io::Write,
+    sync::Arc,
+    time::Duration,
+};
 use tokio::time;
 use tokio::{fs::OpenOptions, io::AsyncWriteExt, sync::RwLock};
 use zstd::{Decoder, Encoder};
@@ -13,13 +19,13 @@ pub const TIMESTAMP_INDICES_FILE: &str = "./indices/timestamps.idx";
 
 #[derive(Debug, Default)]
 pub struct Indices {
-    pub levels: HashMap<String, Vec<u64>>,
-    pub words: HashMap<String, Vec<u64>>,
-    pub timestamps: HashMap<i64, Vec<u64>>,
+    pub levels: HashMap<String, BTreeSet<u64>>,
+    pub words: HashMap<String, BTreeSet<u64>>,
+    pub timestamps: HashMap<i64, BTreeSet<u64>>,
 }
 
 pub async fn write_index_file_to_disk<T: Serialize + Eq + Hash>(
-    indices: &HashMap<T, Vec<u64>>,
+    indices: &HashMap<T, BTreeSet<u64>>,
     filename: &str,
 ) -> Result<(), LogQueryError> {
     let mut file = OpenOptions::new()
@@ -53,14 +59,17 @@ pub async fn write_indices_to_disk(indices: Arc<RwLock<Indices>>) -> Result<(), 
 
 pub async fn load_index_file<T: for<'de> DeserializeOwned + Eq + Hash>(
     filename: &str,
-) -> Result<HashMap<T, Vec<u64>>, LogQueryError> {
+) -> Result<HashMap<T, BTreeSet<u64>>, LogQueryError> {
     match tokio::fs::read(filename).await {
         Ok(bytes) => {
             let mut decoder = Decoder::new(&bytes[..])?;
             let mut decompressed = Vec::new();
 
             std::io::copy(&mut decoder, &mut decompressed)?;
-            let map = postcard::from_bytes(&decompressed).unwrap_or_default();
+            let map = match postcard::from_bytes(&decompressed) {
+                Ok(m) => m,
+                Err(_) => HashMap::new(),
+            };
 
             Ok(map)
         }
