@@ -15,13 +15,59 @@ use serde::{Deserialize, Serialize};
 
 use tokio::{
     fs::{File, OpenOptions},
-    io::{self, AsyncBufReadExt, AsyncReadExt, AsyncSeekExt, AsyncWriteExt, BufReader, stdin},
+    io::{AsyncBufReadExt, AsyncReadExt, AsyncSeekExt, AsyncWriteExt, BufReader, stdin},
     sync::{
         RwLock,
         mpsc::{self, Receiver, Sender},
     },
 };
 use zstd::{Decoder, Encoder};
+
+#[derive(Debug)]
+pub enum LogQueryError {
+    Io(std::io::Error),
+    Postcard(postcard::Error),
+    Utf8(std::string::FromUtf8Error),
+    SerdeJson(serde_json::Error),
+}
+
+impl fmt::Display for LogQueryError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            LogQueryError::Io(e) => write!(f, "IO error: {}", e),
+            LogQueryError::Postcard(e) => write!(f, "postcard error: {}", e),
+
+            LogQueryError::Utf8(e) => write!(f, "utf8 parse error: {}", e),
+            LogQueryError::SerdeJson(e) => write!(f, "serde_json error: {}", e),
+        }
+    }
+}
+
+impl std::error::Error for LogQueryError {}
+
+impl From<std::io::Error> for LogQueryError {
+    fn from(e: std::io::Error) -> Self {
+        LogQueryError::Io(e)
+    }
+}
+
+impl From<postcard::Error> for LogQueryError {
+    fn from(e: postcard::Error) -> Self {
+        LogQueryError::Postcard(e)
+    }
+}
+
+impl From<std::string::FromUtf8Error> for LogQueryError {
+    fn from(e: std::string::FromUtf8Error) -> Self {
+        LogQueryError::Utf8(e)
+    }
+}
+
+impl From<serde_json::Error> for LogQueryError {
+    fn from(e: serde_json::Error) -> Self {
+        LogQueryError::SerdeJson(e)
+    }
+}
 
 #[derive(Deserialize)]
 pub struct LogMessage {
@@ -96,7 +142,7 @@ pub async fn read_file_task(
     tx: Sender<ParsedLog>,
     start_offset: u64,
     metadata: Arc<RwLock<Metadata>>,
-) -> io::Result<()> {
+) -> Result<(), LogQueryError> {
     let mut file = File::open(LOG_FILE).await?;
     file.seek(SeekFrom::Start(start_offset)).await?;
     let mut buffer = Vec::new();
@@ -147,7 +193,7 @@ pub async fn read_file_task(
 async fn write_index_file_to_disk<T: Serialize>(
     indices: &HashMap<T, Vec<u64>>,
     filename: &str,
-) -> io::Result<()> {
+) -> Result<(), LogQueryError> {
     let mut file = OpenOptions::new()
         .create(true)
         .write(true)
@@ -155,7 +201,7 @@ async fn write_index_file_to_disk<T: Serialize>(
         .open(filename)
         .await?;
 
-    let bytes = postcard::to_stdvec(indices).expect("Failed to serialize indices");
+    let bytes = postcard::to_stdvec(indices)?;
 
     let mut encoder = Encoder::new(Vec::new(), 3)?;
     encoder.write_all(&bytes)?;
@@ -167,7 +213,7 @@ async fn write_index_file_to_disk<T: Serialize>(
     Ok(())
 }
 
-async fn write_indices_to_disk(indices: Arc<RwLock<Indices>>) -> io::Result<()> {
+async fn write_indices_to_disk(indices: Arc<RwLock<Indices>>) -> Result<(), LogQueryError> {
     let indices = indices.read().await;
 
     write_index_file_to_disk(&indices.levels, LEVEL_INDICES_FILE).await?;
@@ -194,46 +240,53 @@ async fn write_periodically(indices: Arc<RwLock<Indices>>, metadata: Arc<RwLock<
 
 async fn load_index_file<T: for<'de> Deserialize<'de> + Eq + Hash>(
     filename: &str,
-) -> io::Result<HashMap<T, Vec<u64>>> {
+) -> Result<HashMap<T, Vec<u64>>, LogQueryError> {
     match tokio::fs::read(filename).await {
         Ok(bytes) => {
-            let mut decoder = Decoder::new(&bytes[..]).expect("Decoder failed");
+            let mut decoder = Decoder::new(&bytes[..])?;
             let mut decompressed = Vec::new();
-            
-            std::io::copy(&mut decoder, &mut decompressed).expect("Decompression failed");
 
-            let map = postcard::from_bytes(&decompressed).unwrap_or_else(|_| HashMap::new());
+            std::io::copy(&mut decoder, &mut decompressed)?;
+
+            let map = match postcard::from_bytes(&decompressed) {
+                Ok(m) => m,
+                Err(_) => HashMap::new(),
+            };
 
             Ok(map)
         }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(HashMap::new()),
-        Err(e) => Err(e),
+        Err(e) => Err(e.into()),
     }
 }
 
-async fn load_metadata() -> io::Result<Metadata> {
+async fn load_metadata() -> Result<Metadata, LogQueryError> {
     match tokio::fs::read(METADATA_FILE).await {
         Ok(bytes) => {
-            let meta = serde_json::from_slice(&bytes).unwrap_or(Metadata {
-                last_offset: 0,
-                last_id: 0,
-            });
+            let meta = match serde_json::from_slice(&bytes) {
+                Ok(m) => m,
+                Err(_) => Metadata {
+                    last_offset: 0,
+                    last_id: 0,
+                },
+            };
             Ok(meta)
         }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Metadata {
             last_offset: 0,
             last_id: 0,
         }),
-        Err(e) => Err(e),
+        Err(e) => Err(e.into()),
     }
 }
 
-async fn save_metadata(meta: &Metadata) -> io::Result<()> {
-    let bytes = serde_json::to_vec(meta).unwrap();
-    tokio::fs::write(METADATA_FILE, bytes).await
+async fn save_metadata(meta: &Metadata) -> Result<(), LogQueryError> {
+    let bytes = serde_json::to_vec(meta)?;
+    tokio::fs::write(METADATA_FILE, bytes).await?;
+    Ok(())
 }
 
-async fn find_logs_by_offsets(offsets: &Vec<u64>) -> io::Result<Vec<String>> {
+async fn find_logs_by_offsets(offsets: &Vec<u64>) -> Result<Vec<String>, LogQueryError> {
     let mut offsets = offsets.clone();
     offsets.sort();
 
@@ -301,8 +354,13 @@ async fn cli_task(indices: Arc<RwLock<Indices>>) {
     loop {
         line.clear();
 
-        if reader.read_line(&mut line).await.unwrap() == 0 {
-            break;
+        match reader.read_line(&mut line).await {
+            Ok(0) => break,
+            Ok(_) => {}
+            Err(e) => {
+                eprintln!("CLI read error: {}", e);
+                break;
+            }
         }
 
         let input = line.trim();
@@ -322,7 +380,7 @@ async fn cli_task(indices: Arc<RwLock<Indices>>) {
 }
 
 #[tokio::main]
-async fn main() -> io::Result<()> {
+async fn main() -> Result<(), LogQueryError> {
     tokio::fs::create_dir_all("./indices").await?;
 
     let indices = Arc::new(RwLock::new(Indices {
@@ -347,9 +405,22 @@ async fn main() -> io::Result<()> {
         m.last_offset
     };
 
-    let reader = tokio::spawn(read_file_task(tx, start_offset, Arc::clone(&metadata)));
-    let receiver = tokio::spawn(receive_log_task(rx, Arc::clone(&indices)));
-    let cli = tokio::spawn(cli_task(Arc::clone(&indices)));
+    let reader = tokio::spawn(async move {
+        if let Err(e) = read_file_task(tx, start_offset, Arc::clone(&metadata)).await {
+            eprintln!("Reader task error: {}", e);
+        }
+    });
+
+    let indices_for_receiver = Arc::clone(&indices);
+    let indices_for_cli = Arc::clone(&indices);
+
+    let receiver = tokio::spawn(async move {
+        receive_log_task(rx, indices_for_receiver).await;
+    });
+
+    let cli = tokio::spawn(async move {
+        cli_task(indices_for_cli).await;
+    });
 
     let _ = tokio::join!(reader, receiver, writer, cli);
 
