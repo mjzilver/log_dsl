@@ -1,21 +1,25 @@
-use crate::error::LogQueryError;
-use crate::indices::Indices;
-use crate::metadata::{Metadata, NEXT_ID};
+use crate::{
+    error::LogQueryError,
+    indices::Indices,
+    metadata::{Metadata, NEXT_ID},
+};
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
-use std::borrow::Borrow;
-use std::collections::{BTreeSet, HashMap};
-use std::hash::Hash;
-use std::sync::Arc;
-use std::sync::atomic::Ordering;
-use std::time::Duration;
-use tokio::io::AsyncSeekExt;
-use tokio::time;
-
+use std::{
+    borrow::Borrow,
+    collections::{BTreeSet, HashMap},
+    hash::Hash,
+    sync::{Arc, atomic::Ordering},
+    time::Duration,
+};
 use tokio::{
     fs::File,
-    io::{AsyncBufReadExt, AsyncReadExt, BufReader, stdin},
-    sync::{RwLock, mpsc::Receiver, mpsc::Sender},
+    io::{AsyncBufReadExt, AsyncReadExt, AsyncSeekExt, BufReader, stdin},
+    sync::{
+        RwLock,
+        mpsc::{Receiver, Sender},
+    },
+    time,
 };
 
 use std::io::SeekFrom;
@@ -35,11 +39,7 @@ pub struct ParsedLog {
 
 impl std::fmt::Display for LogMessage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "LogLine ({} - {} - {})",
-            self.level, self.message, self.timestamp
-        )
+        write!(f, "[{}] {}: {}", self.timestamp, self.level, self.message)
     }
 }
 
@@ -164,9 +164,14 @@ where
     if let Some(offsets) = indices.get(needle) {
         match find_logs_by_offsets(offsets).await {
             Ok(logs) => {
+                let mut output = String::new();
                 for log in logs {
-                    println!("{}", log);
+                    if let Ok(log_line) = serde_json::from_str::<LogMessage>(log.trim()) {
+                        output.push_str(&format!("{}\n", log_line));
+                    }
+                    // output.push_str(&format!("{}\n", log));
                 }
+                print!("{}", output);
             }
             Err(e) => {
                 println!("Error retrieving logs: {}", e);

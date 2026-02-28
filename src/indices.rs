@@ -9,8 +9,7 @@ use std::{
     sync::Arc,
     time::Duration,
 };
-use tokio::time;
-use tokio::{fs::OpenOptions, io::AsyncWriteExt, sync::RwLock};
+use tokio::{fs::OpenOptions, io::AsyncWriteExt, sync::RwLock, time};
 use zstd::{Decoder, Encoder};
 
 pub const LEVEL_INDICES_FILE: &str = "./indices/levels.idx";

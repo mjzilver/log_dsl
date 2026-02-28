@@ -4,12 +4,12 @@ mod metadata;
 mod query;
 
 use crate::error::LogQueryError;
-use crate::indices::load_index_file;
-use crate::indices::{Indices, write_periodically};
-use crate::metadata::{NEXT_ID, load_metadata};
-use crate::query::{cli_task, receive_log_task};
-use std::sync::Arc;
-use std::sync::atomic::Ordering;
+use crate::{
+    indices::{Indices, load_index_file, write_periodically},
+    metadata::{NEXT_ID, load_metadata},
+    query::{cli_task, receive_log_task},
+};
+use std::sync::{Arc, atomic::Ordering};
 use tokio::{
     fs::create_dir_all,
     sync::{RwLock, mpsc},
