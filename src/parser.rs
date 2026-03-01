@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use crate::error::LogQueryError;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -7,12 +9,23 @@ pub enum Operator {
     Not,
 }
 
+impl Display for Operator {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Operator::And => write!(f, "AND"),
+            Operator::Or => write!(f, "OR"),
+            Operator::Not => write!(f, "NOT"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     Condition {
         selector: String,
         value: String,
     },
+    Explain(Box<Expr>),
     Unary {
         op: Operator,
         expr: Box<Expr>,
@@ -24,17 +37,36 @@ pub enum Expr {
     },
 }
 
-/*
-    valid expressions:
-
-    word=hello AND word=world -> returns items with the world hello AND world
-    word=hello OR word=world  -> returns items with the world hello OR world
-    level=warn NOT word=hello -> returns items with warning level and without the world hello
-*/
+impl Display for Expr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Expr::Condition { selector, value } => {
+                write!(f, "Selector '{}', Value '{}'", selector, value)
+            }
+            Expr::Unary { op, expr } => {
+                write!(f, "Op '{}', Expr '{}'", op, expr)
+            }
+            Expr::Explain(inner) => {
+                write!(f, "EXPLAIN '{}'", inner)
+            }
+            Expr::Binary { left, op, right } => {
+                write!(f, "Left '{}', Op '{}', Right '{}'", left, op, right)
+            }
+        }
+    }
+}
 
 pub fn parse_query(input: &str) -> Result<Option<Expr>, LogQueryError> {
     let tokens = tokenize(input);
-    let mut iter = tokens.into_iter();
+    let mut explain = false;
+    let mut start = 0usize;
+    if let Some(t) = tokens.get(0) {
+        if *t == Token::Explain {
+            explain = true;
+            start = 1;
+        }
+    }
+    let mut iter = tokens.into_iter().skip(start);
 
     let mut left = match parse_condition(&mut iter)? {
         Some(expr) => expr,
@@ -84,7 +116,11 @@ pub fn parse_query(input: &str) -> Result<Option<Expr>, LogQueryError> {
         }
     }
 
-    Ok(Some(left))
+    if explain {
+        Ok(Some(Expr::Explain(Box::new(left))))
+    } else {
+        Ok(Some(left))
+    }
 }
 
 fn parse_condition(iter: &mut impl Iterator<Item = Token>) -> Result<Option<Expr>, LogQueryError> {
@@ -132,6 +168,7 @@ pub enum Token {
     And,
     Or,
     Not,
+    Explain,
     LParen,
     RParen,
 }
@@ -145,13 +182,14 @@ pub fn tokenize(input: &str) -> Vec<Token> {
             "AND" => tokens.push(Token::And),
             "OR" => tokens.push(Token::Or),
             "NOT" => tokens.push(Token::Not),
+            "EXPLAIN" | "explain" => tokens.push(Token::Explain),
             "(" => tokens.push(Token::LParen),
             ")" => tokens.push(Token::RParen),
             _ => {
                 if let Some((k, v)) = part.split_once('=') {
-                    tokens.push(Token::Ident(k.to_string()));
+                    tokens.push(Token::Ident(k.trim().to_string()));
                     tokens.push(Token::Equals);
-                    tokens.push(Token::Ident(v.to_string()));
+                    tokens.push(Token::Ident(v.trim().to_string()));
                 }
             }
         }

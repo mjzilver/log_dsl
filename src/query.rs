@@ -1,16 +1,12 @@
 use crate::{
     error::LogQueryError,
     indices::Indices,
-    metadata::{Metadata, NEXT_ID},
+    metadata::Metadata,
     parser::{Expr, Operator, parse_query},
 };
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
-use std::{
-    collections::BTreeSet,
-    sync::{Arc, atomic::Ordering},
-    time::Duration,
-};
+use std::{collections::BTreeSet, sync::Arc, time::Duration};
 use tokio::{
     fs::File,
     io::{AsyncBufReadExt, AsyncReadExt, AsyncSeekExt, BufReader, stdin},
@@ -31,7 +27,6 @@ pub struct LogMessage {
 }
 
 pub struct ParsedLog {
-    pub id: u64,
     pub offset: u64,
     pub log: LogMessage,
 }
@@ -57,7 +52,12 @@ pub async fn receive_log_task(mut rx: Receiver<ParsedLog>, indices: Arc<RwLock<I
         for word in log.message.split_whitespace() {
             indices
                 .words
-                .entry(word.to_lowercase())
+                .entry(
+                    word.to_lowercase()
+                        .chars()
+                        .filter(|c| c.is_alphanumeric())
+                        .collect::<String>(),
+                )
                 .or_default()
                 .insert(idx);
         }
@@ -99,10 +99,7 @@ pub async fn read_file_task(
             if let Ok(line_str) = String::from_utf8(line_bytes)
                 && let Ok(log_line) = serde_json::from_str::<LogMessage>(line_str.trim())
             {
-                let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
-
                 let log = ParsedLog {
-                    id,
                     offset: line_start_offset,
                     log: log_line,
                 };
@@ -110,7 +107,6 @@ pub async fn read_file_task(
                 {
                     let mut meta = metadata.write().await;
                     meta.last_offset = current_pos;
-                    meta.last_id = id;
                 }
 
                 let _ = tx.send(log).await;
@@ -160,15 +156,23 @@ pub async fn run_query(input: &str, indices: &Arc<RwLock<Indices>>) -> Result<()
         Ok(Some(ast)) => {
             let indices_read = indices.read().await;
             let offsets = evaluate(&ast, &indices_read)?;
+            let logs = find_logs_by_offsets(&offsets).await?;
 
-            for log in find_logs_by_offsets(&offsets).await? {
-                println!("{}", log);
+            if logs.is_empty() {
+                println!("No logs found");
+            } else {
+                for log in logs {
+                    println!("{}", log);
+                }
             }
 
             Ok(())
         }
 
-        Ok(None) => Ok(()),
+        Ok(None) => {
+            println!("No query provided");
+            Ok(())
+        }
         Err(e) => Err(e),
     }
 }
@@ -202,6 +206,11 @@ pub async fn cli_task(indices: Arc<RwLock<Indices>>) {
 
 pub fn evaluate(expr: &Expr, indices: &Indices) -> Result<BTreeSet<u64>, LogQueryError> {
     match expr {
+        Expr::Explain(inner) => {
+            println!("{}", inner);
+            return Ok(BTreeSet::new());
+        }
+
         Expr::Condition { selector, value } => match selector.as_str() {
             "level" => Ok(indices.levels.get(value).cloned().unwrap_or_default()),
             "word" => Ok(indices.words.get(value).cloned().unwrap_or_default()),
@@ -212,9 +221,7 @@ pub fn evaluate(expr: &Expr, indices: &Indices) -> Result<BTreeSet<u64>, LogQuer
             let result = evaluate(inner, indices)?;
 
             match op {
-                Operator::Not => {
-                    Ok(&build_universe(indices) - &result)
-                }
+                Operator::Not => Ok(&build_universe(indices) - &result),
                 _ => Ok(result),
             }
         }
@@ -234,10 +241,10 @@ pub fn evaluate(expr: &Expr, indices: &Indices) -> Result<BTreeSet<u64>, LogQuer
 
 fn build_universe(indices: &Indices) -> BTreeSet<u64> {
     let mut universe = BTreeSet::new();
-    
+
     for offsets in indices.levels.values() {
         universe.extend(offsets);
     }
-    
+
     universe
 }

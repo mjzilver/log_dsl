@@ -1,14 +1,11 @@
 use crate::error::LogQueryError;
 use serde::{Deserialize, Serialize};
-use std::{io, sync::atomic::AtomicU64};
+use std::io;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Metadata {
     pub last_offset: u64,
-    pub last_id: u64,
 }
-
-pub static NEXT_ID: AtomicU64 = AtomicU64::new(0);
 
 static METADATA_FILE: &str = "./indices/metadata.json";
 
@@ -17,17 +14,11 @@ pub async fn load_metadata() -> Result<Metadata, LogQueryError> {
         Ok(bytes) => {
             let meta = match serde_json::from_slice(&bytes) {
                 Ok(m) => m,
-                Err(_) => Metadata {
-                    last_offset: 0,
-                    last_id: 0,
-                },
+                Err(_) => Metadata { last_offset: 0 },
             };
             Ok(meta)
         }
-        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(Metadata {
-            last_offset: 0,
-            last_id: 0,
-        }),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(Metadata { last_offset: 0 }),
         Err(e) => Err(e.into()),
     }
 }

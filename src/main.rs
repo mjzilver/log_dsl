@@ -7,10 +7,10 @@ mod query;
 use crate::error::LogQueryError;
 use crate::{
     indices::{Indices, load_index_file, write_periodically},
-    metadata::{NEXT_ID, load_metadata},
+    metadata::load_metadata,
     query::{cli_task, receive_log_task},
 };
-use std::sync::{Arc, atomic::Ordering};
+use std::sync::Arc;
 use tokio::{
     fs::create_dir_all,
     sync::{RwLock, mpsc},
@@ -27,7 +27,6 @@ async fn main() -> Result<(), LogQueryError> {
     }));
 
     let metadata_val = load_metadata().await?;
-    NEXT_ID.store(metadata_val.last_id, Ordering::Relaxed);
     let metadata = Arc::new(RwLock::new(metadata_val));
 
     let writer = tokio::spawn(write_periodically(
