@@ -2,13 +2,12 @@ use crate::{
     error::LogQueryError,
     indices::Indices,
     metadata::{Metadata, NEXT_ID},
+    parser::{Expr, Operator, parse_query},
 };
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use std::{
-    borrow::Borrow,
-    collections::{BTreeSet, HashMap},
-    hash::Hash,
+    collections::BTreeSet,
     sync::{Arc, atomic::Ordering},
     time::Duration,
 };
@@ -156,29 +155,21 @@ pub async fn find_logs_by_offsets(offsets: &BTreeSet<u64>) -> Result<Vec<String>
     Ok(res)
 }
 
-pub async fn query<K, Q>(indices: &HashMap<K, BTreeSet<u64>>, needle: &Q)
-where
-    K: Eq + Hash + Borrow<Q>,
-    Q: Eq + Hash + ?Sized,
-{
-    if let Some(offsets) = indices.get(needle) {
-        match find_logs_by_offsets(offsets).await {
-            Ok(logs) => {
-                let mut output = String::new();
-                for log in logs {
-                    if let Ok(log_line) = serde_json::from_str::<LogMessage>(log.trim()) {
-                        output.push_str(&format!("{}\n", log_line));
-                    }
-                    // output.push_str(&format!("{}\n", log));
-                }
-                print!("{}", output);
+pub async fn run_query(input: &str, indices: &Arc<RwLock<Indices>>) -> Result<(), LogQueryError> {
+    match parse_query(input) {
+        Ok(Some(ast)) => {
+            let indices_read = indices.read().await;
+            let offsets = evaluate(&ast, &indices_read)?;
+
+            for log in find_logs_by_offsets(&offsets).await? {
+                println!("{}", log);
             }
-            Err(e) => {
-                println!("Error retrieving logs: {}", e);
-            }
+
+            Ok(())
         }
-    } else {
-        println!("No results");
+
+        Ok(None) => Ok(()),
+        Err(e) => Err(e),
     }
 }
 
@@ -187,7 +178,7 @@ pub async fn cli_task(indices: Arc<RwLock<Indices>>) {
     let mut line = String::new();
 
     println!("Log query system ready.");
-    println!("Example: level=warn or word=timeout");
+    println!("Example: level=warn OR word=timeout");
 
     loop {
         line.clear();
@@ -203,16 +194,50 @@ pub async fn cli_task(indices: Arc<RwLock<Indices>>) {
 
         let input = line.trim();
 
-        if input.starts_with("level=") {
-            let level = input.trim_start_matches("level=");
-            let guard = indices.read().await;
-
-            query(&guard.levels, level).await;
-        } else if input.starts_with("word=") {
-            let word = input.trim_start_matches("word=");
-            let guard = indices.read().await;
-
-            query(&guard.words, word).await;
+        if let Err(e) = run_query(input, &indices).await {
+            println!("Query error: {}", e);
         }
     }
+}
+
+pub fn evaluate(expr: &Expr, indices: &Indices) -> Result<BTreeSet<u64>, LogQueryError> {
+    match expr {
+        Expr::Condition { selector, value } => match selector.as_str() {
+            "level" => Ok(indices.levels.get(value).cloned().unwrap_or_default()),
+            "word" => Ok(indices.words.get(value).cloned().unwrap_or_default()),
+            _ => Ok(BTreeSet::new()),
+        },
+
+        Expr::Unary { op, expr: inner } => {
+            let result = evaluate(inner, indices)?;
+
+            match op {
+                Operator::Not => {
+                    Ok(&build_universe(indices) - &result)
+                }
+                _ => Ok(result),
+            }
+        }
+
+        Expr::Binary { left, op, right } => {
+            let left_set = evaluate(left, indices)?;
+            let right_set = evaluate(right, indices)?;
+
+            match op {
+                Operator::And => Ok(&left_set & &right_set),
+                Operator::Or => Ok(&left_set | &right_set),
+                _ => Ok(left_set),
+            }
+        }
+    }
+}
+
+fn build_universe(indices: &Indices) -> BTreeSet<u64> {
+    let mut universe = BTreeSet::new();
+    
+    for offsets in indices.levels.values() {
+        universe.extend(offsets);
+    }
+    
+    universe
 }

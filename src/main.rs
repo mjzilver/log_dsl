@@ -1,6 +1,7 @@
 mod error;
 mod indices;
 mod metadata;
+mod parser;
 mod query;
 
 use crate::error::LogQueryError;

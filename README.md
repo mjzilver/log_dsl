@@ -11,11 +11,12 @@ This project provides a small, efficient log ingestion and query system focused 
 - Concurrency: background tasks (reader, index writer, CLI).
 - Robust error handling: unified `LogQueryError`
 - Simple interactive CLI
+- Boolean operators and grouping (AND / OR / NOT).
 
 ## TODO:
 
-- Boolean operators and grouping (AND / OR / NOT).
 - Wildcards and prefix/suffix matching.
 - Phrase and regex search.
 - Pagination / streaming.
 - Make ingestion accept any NDJSON input (file, pipe, socket).
+- EXPLAIN keyword to print AST

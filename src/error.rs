@@ -6,6 +6,7 @@ pub enum LogQueryError {
     Postcard(postcard::Error),
     Utf8(std::string::FromUtf8Error),
     SerdeJson(serde_json::Error),
+    ParserError(String),
 }
 
 impl fmt::Display for LogQueryError {
@@ -15,6 +16,7 @@ impl fmt::Display for LogQueryError {
             LogQueryError::Postcard(e) => write!(f, "postcard error: {}", e),
             LogQueryError::Utf8(e) => write!(f, "utf8 parse error: {}", e),
             LogQueryError::SerdeJson(e) => write!(f, "serde_json error: {}", e),
+            LogQueryError::ParserError(s) => write!(f, "parsing error: {}", s),
         }
     }
 }
