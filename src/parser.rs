@@ -60,11 +60,11 @@ pub fn parse_query(input: &str) -> Result<Option<Expr>, LogQueryError> {
     let tokens = tokenize(input);
     let mut explain = false;
     let mut start = 0usize;
-    if let Some(t) = tokens.get(0) {
-        if *t == Token::Explain {
-            explain = true;
-            start = 1;
-        }
+    if let Some(t) = tokens.first()
+        && *t == Token::Explain
+    {
+        explain = true;
+        start = 1;
     }
     let mut iter = tokens.into_iter().skip(start);
 

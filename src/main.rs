@@ -1,14 +1,17 @@
+mod cli;
 mod error;
 mod indices;
+mod ingest;
 mod metadata;
 mod parser;
 mod query;
 
 use crate::error::LogQueryError;
 use crate::{
+    cli::cli_task,
     indices::{Indices, load_index_file, write_periodically},
+    ingest::{ParsedLog, read_file_task, receive_log_task},
     metadata::load_metadata,
-    query::{cli_task, receive_log_task},
 };
 use std::sync::Arc;
 use tokio::{
@@ -34,7 +37,7 @@ async fn main() -> Result<(), LogQueryError> {
         Arc::clone(&metadata),
     ));
 
-    let (tx, rx) = mpsc::channel::<query::ParsedLog>(1024);
+    let (tx, rx) = mpsc::channel::<ParsedLog>(1024);
 
     let start_offset = {
         let m = metadata.read().await;
@@ -42,7 +45,7 @@ async fn main() -> Result<(), LogQueryError> {
     };
 
     let reader = tokio::spawn(async move {
-        if let Err(e) = query::read_file_task(tx, start_offset, Arc::clone(&metadata)).await {
+        if let Err(e) = read_file_task(tx, start_offset, Arc::clone(&metadata)).await {
             eprintln!("Reader task error: {}", e);
         }
     });
