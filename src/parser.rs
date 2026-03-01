@@ -41,16 +41,16 @@ impl Display for Expr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Expr::Condition { selector, value } => {
-                write!(f, "Selector '{}', Value '{}'", selector, value)
+                write!(f, "Selector [{}], Value [{}]", selector, value)
             }
             Expr::Unary { op, expr } => {
-                write!(f, "Op '{}', Expr '{}'", op, expr)
+                write!(f, "Op [{}], Expr [{}]", op, expr)
             }
             Expr::Explain(inner) => {
-                write!(f, "EXPLAIN '{}'", inner)
+                write!(f, "EXPLAIN [{}]", inner)
             }
             Expr::Binary { left, op, right } => {
-                write!(f, "Left '{}', Op '{}', Right '{}'", left, op, right)
+                write!(f, "Left [{}], Op [{}], Right [{}]", left, op, right)
             }
         }
     }
