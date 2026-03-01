@@ -7,7 +7,7 @@ This project provides a small, efficient log ingestion and query system focused 
 - Real-time log ingestion: a background reader tails the log and ingests new JSON lines as they appear.
 - Indexed fields: in-memory indices for `level`, tokenized `words`, and `timestamps` to make queries fast.
 - Persistent indices: indices are periodically serialized and compressed 
-- Metadata persistence: last-read offset and id are stored
+- Metadata persistence: last-read offset is stored
 - Concurrency: background tasks (reader, index writer, CLI).
 - Robust error handling: unified `LogQueryError`
 - Simple interactive CLI
