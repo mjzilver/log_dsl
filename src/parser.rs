@@ -20,10 +20,25 @@ impl Display for Operator {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum ValueType {
+    Full(String),
+    StartsWith(String),
+}
+
+impl Display for ValueType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ValueType::Full(v) => write!(f, "{}", v),
+            ValueType::StartsWith(v) => write!(f, "^{}", v),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     Condition {
         selector: String,
-        value: String,
+        value: ValueType,
     },
     Explain(Box<Expr>),
     Unary {
@@ -60,12 +75,14 @@ pub fn parse_query(input: &str) -> Result<Option<Expr>, LogQueryError> {
     let tokens = tokenize(input);
     let mut explain = false;
     let mut start = 0usize;
+
     if let Some(t) = tokens.first()
         && *t == Token::Explain
     {
         explain = true;
         start = 1;
     }
+
     let mut iter = tokens.into_iter().skip(start);
 
     let mut left = match parse_condition(&mut iter)? {
@@ -136,7 +153,20 @@ fn parse_condition(iter: &mut impl Iterator<Item = Token>) -> Result<Option<Expr
             }
 
             match iter.next() {
-                Some(Token::Ident(value)) => Ok(Some(Expr::Condition { selector, value })),
+                Some(Token::Ident(value)) => {
+                    if let Some(stripped) = value.strip_suffix('^') {
+                        Ok(Some(Expr::Condition {
+                            selector,
+                            value: ValueType::StartsWith(stripped.to_string()),
+                        }))
+                    } else {
+                        Ok(Some(Expr::Condition {
+                            selector,
+                            value: ValueType::Full(value),
+                        }))
+                    }
+                }
+
                 _ => Err(LogQueryError::ParserError(
                     "Expected value after '='".into(),
                 )),
@@ -157,6 +187,7 @@ fn parse_condition(iter: &mut impl Iterator<Item = Token>) -> Result<Option<Expr
         Some(_) => Err(LogQueryError::ParserError(
             "Invalid start of expression".into(),
         )),
+
         None => Ok(None),
     }
 }

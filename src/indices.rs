@@ -2,25 +2,20 @@ use crate::error::LogQueryError;
 use crate::metadata::{Metadata, save_metadata};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-use std::{
-    collections::{BTreeSet, HashMap},
-    hash::Hash,
-    io::Write,
-    sync::Arc,
-    time::Duration,
-};
+use std::collections::BTreeMap;
+use std::{collections::BTreeSet, hash::Hash, io::Write, sync::Arc, time::Duration};
 use tokio::{fs::OpenOptions, io::AsyncWriteExt, sync::RwLock, time};
 use zstd::{Decoder, Encoder};
 
 #[derive(Debug, Default)]
 pub struct Indices {
-    pub levels: HashMap<String, BTreeSet<u64>>,
-    pub words: HashMap<String, BTreeSet<u64>>,
-    pub timestamps: HashMap<i64, BTreeSet<u64>>,
+    pub levels: BTreeMap<String, BTreeSet<u64>>,
+    pub words: BTreeMap<String, BTreeSet<u64>>,
+    pub timestamps: BTreeMap<i64, BTreeSet<u64>>,
 }
 
 pub async fn write_index_file_to_disk<T: Serialize + Eq + Hash>(
-    indices: &HashMap<T, BTreeSet<u64>>,
+    indices: &BTreeMap<T, BTreeSet<u64>>,
     filename: &str,
 ) -> Result<(), LogQueryError> {
     let mut file = OpenOptions::new()
@@ -55,9 +50,9 @@ pub async fn write_indices_to_disk(
     Ok(())
 }
 
-pub async fn load_index_file<T: for<'de> DeserializeOwned + Eq + Hash>(
+pub async fn load_index_file<T: for<'de> DeserializeOwned + Eq + Hash + Ord>(
     filename: &str,
-) -> Result<HashMap<T, BTreeSet<u64>>, LogQueryError> {
+) -> Result<BTreeMap<T, BTreeSet<u64>>, LogQueryError> {
     match tokio::fs::read(filename).await {
         Ok(bytes) => {
             let mut decoder = Decoder::new(&bytes[..])?;
@@ -68,7 +63,7 @@ pub async fn load_index_file<T: for<'de> DeserializeOwned + Eq + Hash>(
 
             Ok(map)
         }
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(HashMap::new()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(BTreeMap::new()),
         Err(e) => Err(e.into()),
     }
 }

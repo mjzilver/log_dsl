@@ -1,9 +1,13 @@
 use crate::{
     error::LogQueryError,
     indices::Indices,
-    parser::{Expr, Operator, parse_query},
+    ingest::find_logs_by_offsets,
+    parser::{Expr, Operator, ValueType, parse_query},
 };
-use std::{collections::BTreeSet, sync::Arc};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 use tokio::sync::RwLock;
 
 pub async fn run_query(input: &str, indices: &Arc<RwLock<Indices>>) -> Result<(), LogQueryError> {
@@ -11,7 +15,7 @@ pub async fn run_query(input: &str, indices: &Arc<RwLock<Indices>>) -> Result<()
         Ok(Some(ast)) => {
             let indices_read = indices.read().await;
             let offsets = evaluate(&ast, &indices_read)?;
-            let logs = crate::ingest::find_logs_by_offsets(&offsets).await?;
+            let logs = find_logs_by_offsets(&offsets).await?;
 
             if logs.is_empty() {
                 println!("No logs found");
@@ -32,6 +36,14 @@ pub async fn run_query(input: &str, indices: &Arc<RwLock<Indices>>) -> Result<()
     }
 }
 
+fn get_map<'a>(selector: &'a str, indices: &'a Indices) -> &'a BTreeMap<String, BTreeSet<u64>> {
+    match selector {
+        "level" => &indices.levels,
+        "word" => &indices.words,
+        _ => &indices.levels,
+    }
+}
+
 pub fn evaluate(expr: &Expr, indices: &Indices) -> Result<BTreeSet<u64>, LogQueryError> {
     match expr {
         Expr::Explain(inner) => {
@@ -39,10 +51,24 @@ pub fn evaluate(expr: &Expr, indices: &Indices) -> Result<BTreeSet<u64>, LogQuer
             Ok(BTreeSet::new())
         }
 
-        Expr::Condition { selector, value } => match selector.as_str() {
-            "level" => Ok(indices.levels.get(value).cloned().unwrap_or_default()),
-            "word" => Ok(indices.words.get(value).cloned().unwrap_or_default()),
-            _ => Ok(BTreeSet::new()),
+        Expr::Condition { selector, value } => match value {
+            ValueType::Full(v) => {
+                let map = get_map(selector, indices);
+                Ok(map.get(v).cloned().unwrap_or_default())
+            }
+
+            ValueType::StartsWith(str) => {
+                let mut result = BTreeSet::new();
+                let map = get_map(selector, indices);
+
+                for (key, set) in map.iter() {
+                    if key.starts_with(str) {
+                        result.extend(set.clone());
+                    }
+                }
+
+                Ok(result)
+            }
         },
 
         Expr::Unary { op, expr: inner } => {
