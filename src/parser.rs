@@ -23,13 +23,15 @@ impl Display for Operator {
 pub enum ValueType {
     Full(String),
     StartsWith(String),
+    EndsWith(String),
 }
 
 impl Display for ValueType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ValueType::Full(v) => write!(f, "{}", v),
-            ValueType::StartsWith(v) => write!(f, "^{}", v),
+            ValueType::StartsWith(v) => write!(f, "{}^", v),
+            ValueType::EndsWith(v) => write!(f, "${}", v),
         }
     }
 }
@@ -158,6 +160,11 @@ fn parse_condition(iter: &mut impl Iterator<Item = Token>) -> Result<Option<Expr
                         Ok(Some(Expr::Condition {
                             selector,
                             value: ValueType::StartsWith(stripped.to_string()),
+                        }))
+                    } else if let Some(stripped) = value.strip_prefix('$') {
+                        Ok(Some(Expr::Condition {
+                            selector,
+                            value: ValueType::EndsWith(stripped.to_string()),
                         }))
                     } else {
                         Ok(Some(Expr::Condition {

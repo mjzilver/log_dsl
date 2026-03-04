@@ -52,6 +52,7 @@ async fn main() -> Result<(), LogQueryError> {
     let indices = Arc::new(RwLock::new(Indices {
         levels: load_index_file(&format!("{}/levels.idx", dir)).await?,
         words: load_index_file(&format!("{}/words.idx", dir)).await?,
+        rev_words: load_index_file(&format!("{}/rev_words.idx", dir)).await?,
         timestamps: load_index_file(&format!("{}/timestamps.idx", dir)).await?,
     }));
 

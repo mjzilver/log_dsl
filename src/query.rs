@@ -44,6 +44,13 @@ fn get_map<'a>(selector: &'a str, indices: &'a Indices) -> &'a BTreeMap<String, 
     }
 }
 
+fn get_rev_map<'a>(selector: &'a str, indices: &'a Indices) -> &'a BTreeMap<String, BTreeSet<u64>> {
+    match selector {
+        "word" => &indices.rev_words,
+        _ => &indices.levels,
+    }
+}
+
 pub fn evaluate(expr: &Expr, indices: &Indices) -> Result<BTreeSet<u64>, LogQueryError> {
     match expr {
         Expr::Explain(inner) => {
@@ -51,25 +58,42 @@ pub fn evaluate(expr: &Expr, indices: &Indices) -> Result<BTreeSet<u64>, LogQuer
             Ok(BTreeSet::new())
         }
 
-        Expr::Condition { selector, value } => match value {
-            ValueType::Full(v) => {
-                let map = get_map(selector, indices);
-                Ok(map.get(v).cloned().unwrap_or_default())
-            }
+        Expr::Condition { selector, value } => {
+            let map = get_map(selector, indices);
 
-            ValueType::StartsWith(str) => {
-                let mut result = BTreeSet::new();
-                let map = get_map(selector, indices);
+            match value {
+                ValueType::Full(v) => Ok(map.get(v).cloned().unwrap_or_default()),
 
-                for (key, set) in map.iter() {
-                    if key.starts_with(str) {
-                        result.extend(set.clone());
+                ValueType::StartsWith(v) => {
+                    let mut result = BTreeSet::new();
+
+                    let start = v.to_string();
+                    let end = format!("{}{{", v);
+
+                    for (_, set) in map.range(start..end) {
+                        result.extend(set.iter().cloned());
                     }
+
+                    Ok(result)
                 }
 
-                Ok(result)
+                ValueType::EndsWith(v) => {
+                    let mut result = BTreeSet::new();
+
+                    let rev_map = get_rev_map(selector, indices);
+
+                    let reversed_query: String = v.chars().rev().collect();
+                    let start = reversed_query.clone();
+                    let end = format!("{}{{", reversed_query);
+
+                    for (_, set) in rev_map.range(start..end) {
+                        result.extend(set.iter().cloned());
+                    }
+
+                    Ok(result)
+                }
             }
-        },
+        }
 
         Expr::Unary { op, expr: inner } => {
             let result = evaluate(inner, indices)?;

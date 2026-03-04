@@ -13,6 +13,7 @@ This project provides a small, efficient log ingestion and query system focused 
 - Simple interactive CLI
 - Operators (AND / OR / NOT).
 - EXPLAIN keyword to print AST
+- Prefix & Suffix matching
 
 ## Usage
 
@@ -23,6 +24,8 @@ This project provides a small, efficient log ingestion and query system focused 
 - Operators: `AND`, `OR`, `NOT` (use explicit operators between expressions).
     - `NOT` is a unary negation. Use as `NOT expr` or combined: `A AND NOT B`.
     - Avoid ambiguous forms like `A NOT B`; write `A AND NOT B` instead.
+- Prefix matching with `word=hell^` and suffix with `word=$ello` 
+    - Combined `word=lap^ AND word=$top` for laptop 
 - `EXPLAIN` prints the parsed AST when prefixed to a query. Example:
 
 ```
@@ -34,7 +37,6 @@ The output will show the AST used for evaluation (useful for debugging queries).
 
 - Timestamp filtering
 - Operator precedence & parentheses
-- Wildcards and prefix/suffix matching.
 - Phrase and regex search.
-- Pagination / streaming.
+- Pagination or streaming. (LIMIT / OFFSET)
 - Make ingestion accept any NDJSON input (file, pipe, socket).

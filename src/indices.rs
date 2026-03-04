@@ -11,6 +11,7 @@ use zstd::{Decoder, Encoder};
 pub struct Indices {
     pub levels: BTreeMap<String, BTreeSet<u64>>,
     pub words: BTreeMap<String, BTreeSet<u64>>,
+    pub rev_words: BTreeMap<String, BTreeSet<u64>>,
     pub timestamps: BTreeMap<i64, BTreeSet<u64>>,
 }
 
@@ -45,6 +46,7 @@ pub async fn write_indices_to_disk(
 
     write_index_file_to_disk(&indices.levels, &format!("{}/levels.idx", base_dir)).await?;
     write_index_file_to_disk(&indices.words, &format!("{}/words.idx", base_dir)).await?;
+    write_index_file_to_disk(&indices.rev_words, &format!("{}/rev_words.idx", base_dir)).await?;
     write_index_file_to_disk(&indices.timestamps, &format!("{}/timestamps.idx", base_dir)).await?;
 
     Ok(())

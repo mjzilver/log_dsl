@@ -41,16 +41,15 @@ pub async fn receive_log_task(
             .insert(idx);
 
         for word in log.message.split_whitespace() {
-            indices
-                .words
-                .entry(
-                    word.to_lowercase()
-                        .chars()
-                        .filter(|c| c.is_alphanumeric())
-                        .collect::<String>(),
-                )
-                .or_default()
-                .insert(idx);
+            let cleaned: String = word
+            .to_lowercase()
+            .chars()
+            .filter(|c| c.is_alphanumeric())
+            .collect();
+            indices.words.entry(cleaned.clone()).or_default().insert(idx);
+            
+            let reversed: String = cleaned.chars().rev().collect();
+            indices.rev_words.entry(reversed).or_default().insert(idx);
         }
 
         let ts = log.timestamp.timestamp();
