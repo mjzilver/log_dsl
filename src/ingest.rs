@@ -62,8 +62,9 @@ pub async fn read_file_task(
     tx: tokio::sync::mpsc::Sender<ParsedLog>,
     start_offset: u64,
     metadata: Arc<RwLock<Metadata>>,
+    filepath: &str,
 ) -> Result<(), LogQueryError> {
-    let mut file = File::open("./bot.log").await?;
+    let mut file = File::open(filepath).await?;
     file.seek(SeekFrom::Start(start_offset)).await?;
     let mut buffer = Vec::new();
     let mut current_pos = start_offset;

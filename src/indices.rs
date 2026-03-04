@@ -12,10 +12,6 @@ use std::{
 use tokio::{fs::OpenOptions, io::AsyncWriteExt, sync::RwLock, time};
 use zstd::{Decoder, Encoder};
 
-pub const LEVEL_INDICES_FILE: &str = "./indices/levels.idx";
-pub const WORD_INDICES_FILE: &str = "./indices/words.idx";
-pub const TIMESTAMP_INDICES_FILE: &str = "./indices/timestamps.idx";
-
 #[derive(Debug, Default)]
 pub struct Indices {
     pub levels: HashMap<String, BTreeSet<u64>>,
@@ -46,12 +42,15 @@ pub async fn write_index_file_to_disk<T: Serialize + Eq + Hash>(
     Ok(())
 }
 
-pub async fn write_indices_to_disk(indices: Arc<RwLock<Indices>>) -> Result<(), LogQueryError> {
+pub async fn write_indices_to_disk(
+    indices: Arc<RwLock<Indices>>,
+    base_dir: &str,
+) -> Result<(), LogQueryError> {
     let indices = indices.read().await;
 
-    write_index_file_to_disk(&indices.levels, LEVEL_INDICES_FILE).await?;
-    write_index_file_to_disk(&indices.words, WORD_INDICES_FILE).await?;
-    write_index_file_to_disk(&indices.timestamps, TIMESTAMP_INDICES_FILE).await?;
+    write_index_file_to_disk(&indices.levels, &format!("{}/levels.idx", base_dir)).await?;
+    write_index_file_to_disk(&indices.words, &format!("{}/words.idx", base_dir)).await?;
+    write_index_file_to_disk(&indices.timestamps, &format!("{}/timestamps.idx", base_dir)).await?;
 
     Ok(())
 }
@@ -74,16 +73,20 @@ pub async fn load_index_file<T: for<'de> DeserializeOwned + Eq + Hash>(
     }
 }
 
-pub async fn write_periodically(indices: Arc<RwLock<Indices>>, metadata: Arc<RwLock<Metadata>>) {
+pub async fn write_periodically(
+    indices: Arc<RwLock<Indices>>,
+    metadata: Arc<RwLock<Metadata>>,
+    base_dir: String,
+) {
     loop {
         time::sleep(Duration::from_secs(5)).await;
 
-        if let Err(e) = write_indices_to_disk(Arc::clone(&indices)).await {
+        if let Err(e) = write_indices_to_disk(Arc::clone(&indices), &base_dir).await {
             eprintln!("Failed to write indices: {:?}", e);
         }
 
         let meta_guard = metadata.read().await;
-        if let Err(e) = save_metadata(&meta_guard).await {
+        if let Err(e) = save_metadata(&meta_guard, &format!("{}/metadata.json", base_dir)).await {
             eprintln!("Failed to save metadata: {:?}", e);
         }
     }
