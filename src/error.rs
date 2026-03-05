@@ -8,6 +8,7 @@ pub enum LogQueryError {
     SerdeJson(serde_json::Error),
     ParserError(String),
     FileNotFound(String),
+    UnknownSelector(String),
 }
 
 impl fmt::Display for LogQueryError {
@@ -19,6 +20,7 @@ impl fmt::Display for LogQueryError {
             LogQueryError::SerdeJson(e) => write!(f, "serde_json error: {}", e),
             LogQueryError::ParserError(s) => write!(f, "parsing error: {}", s),
             LogQueryError::FileNotFound(s) => write!(f, "File does not exist: {}", s),
+            LogQueryError::UnknownSelector(s) => write!(f, "unknown selector: {}", s),
         }
     }
 }

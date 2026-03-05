@@ -36,19 +36,57 @@ pub async fn run_query(input: &str, indices: &Arc<RwLock<Indices>>) -> Result<()
     }
 }
 
-fn get_map<'a>(selector: &'a str, indices: &'a Indices) -> &'a BTreeMap<String, BTreeSet<u64>> {
+fn get_map<'a>(
+    selector: &'a str,
+    indices: &'a Indices,
+) -> Result<&'a BTreeMap<String, BTreeSet<u64>>, LogQueryError> {
     match selector {
-        "level" => &indices.levels,
-        "word" => &indices.words,
-        _ => &indices.levels,
+        "level" => Ok(&indices.levels),
+        "word" => Ok(&indices.words),
+        _ => Err(LogQueryError::UnknownSelector(selector.to_string())),
     }
 }
 
-fn get_rev_map<'a>(selector: &'a str, indices: &'a Indices) -> &'a BTreeMap<String, BTreeSet<u64>> {
+fn get_rev_map<'a>(
+    selector: &'a str,
+    indices: &'a Indices,
+) -> Result<&'a BTreeMap<String, BTreeSet<u64>>, LogQueryError> {
     match selector {
-        "word" => &indices.rev_words,
-        _ => &indices.levels,
+        "word" => Ok(&indices.rev_words),
+        _ => Err(LogQueryError::UnknownSelector(selector.to_string())),
     }
+}
+
+pub fn get_prefix_matches(
+    v: &str,
+    map: &BTreeMap<String, BTreeSet<u64>>,
+) -> Result<BTreeSet<u64>, LogQueryError> {
+    let mut result = BTreeSet::new();
+
+    let start = v.to_string();
+    let end = format!("{}{{", v);
+
+    for (_, set) in map.range(start..end) {
+        result.extend(set.iter().cloned());
+    }
+
+    Ok(result)
+}
+
+pub fn get_suffix_matches(
+    v: &str,
+    rev_map: &BTreeMap<String, BTreeSet<u64>>,
+) -> Result<BTreeSet<u64>, LogQueryError> {
+    let mut result = BTreeSet::new();
+    let reversed_query: String = v.chars().rev().collect();
+    let start = reversed_query.clone();
+    let end = format!("{}{{", reversed_query);
+
+    for (_, set) in rev_map.range(start..end) {
+        result.extend(set.iter().cloned());
+    }
+
+    Ok(result)
 }
 
 pub fn evaluate(expr: &Expr, indices: &Indices) -> Result<BTreeSet<u64>, LogQueryError> {
@@ -58,42 +96,29 @@ pub fn evaluate(expr: &Expr, indices: &Indices) -> Result<BTreeSet<u64>, LogQuer
             Ok(BTreeSet::new())
         }
 
-        Expr::Condition { selector, value } => {
-            let map = get_map(selector, indices);
+        Expr::Condition { selector, value } => match value {
+            ValueType::Full(v) => Ok(get_map(selector, indices)?
+                .get(v)
+                .cloned()
+                .unwrap_or_default()),
 
-            match value {
-                ValueType::Full(v) => Ok(map.get(v).cloned().unwrap_or_default()),
+            ValueType::StartsWith(v) => get_prefix_matches(v, get_map(selector, indices)?),
 
-                ValueType::StartsWith(v) => {
-                    let mut result = BTreeSet::new();
+            ValueType::EndsWith(v) => get_suffix_matches(v, get_rev_map(selector, indices)?),
 
-                    let start = v.to_string();
-                    let end = format!("{}{{", v);
+            ValueType::Contains(v) => {
+                let map = get_map(selector, indices)?;
+                let mut result = BTreeSet::new();
 
-                    for (_, set) in map.range(start..end) {
-                        result.extend(set.iter().cloned());
+                for (word, offsets) in map {
+                    if word.contains(v) {
+                        result.extend(offsets);
                     }
-
-                    Ok(result)
                 }
 
-                ValueType::EndsWith(v) => {
-                    let mut result = BTreeSet::new();
-
-                    let rev_map = get_rev_map(selector, indices);
-
-                    let reversed_query: String = v.chars().rev().collect();
-                    let start = reversed_query.clone();
-                    let end = format!("{}{{", reversed_query);
-
-                    for (_, set) in rev_map.range(start..end) {
-                        result.extend(set.iter().cloned());
-                    }
-
-                    Ok(result)
-                }
+                Ok(result)
             }
-        }
+        },
 
         Expr::Unary { op, expr: inner } => {
             let result = evaluate(inner, indices)?;

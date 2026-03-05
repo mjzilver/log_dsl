@@ -13,7 +13,7 @@ This project provides a small, efficient log ingestion and query system focused 
 - Simple interactive CLI
 - Operators (AND / OR / NOT).
 - EXPLAIN keyword to print AST
-- Prefix & Suffix matching
+- Prefix, Suffix & Contains matching
 
 ## Usage
 
@@ -26,6 +26,7 @@ This project provides a small, efficient log ingestion and query system focused 
     - Avoid ambiguous forms like `A NOT B`; write `A AND NOT B` instead.
 - Prefix matching with `word=hell^` and suffix with `word=$ello` 
     - Combined `word=lap^ AND word=$top` for laptop 
+- Contains rearch `word=~ord` matches word ordinary etc 
 - `EXPLAIN` prints the parsed AST when prefixed to a query. Example:
 
 ```

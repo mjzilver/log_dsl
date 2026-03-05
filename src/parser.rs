@@ -24,14 +24,16 @@ pub enum ValueType {
     Full(String),
     StartsWith(String),
     EndsWith(String),
+    Contains(String),
 }
 
 impl Display for ValueType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ValueType::Full(v) => write!(f, "{}", v),
-            ValueType::StartsWith(v) => write!(f, "{}^", v),
-            ValueType::EndsWith(v) => write!(f, "${}", v),
+            ValueType::Full(v) => write!(f, "Full: {}", v),
+            ValueType::StartsWith(v) => write!(f, "StartsWith: {}", v),
+            ValueType::EndsWith(v) => write!(f, "EndsWith: {}", v),
+            ValueType::Contains(v) => write!(f, "Contains: {}", v),
         }
     }
 }
@@ -156,7 +158,12 @@ fn parse_condition(iter: &mut impl Iterator<Item = Token>) -> Result<Option<Expr
 
             match iter.next() {
                 Some(Token::Ident(value)) => {
-                    if let Some(stripped) = value.strip_suffix('^') {
+                    if let Some(stripped) = value.strip_prefix('~') {
+                        Ok(Some(Expr::Condition {
+                            selector,
+                            value: ValueType::Contains(stripped.to_string()),
+                        }))
+                    } else if let Some(stripped) = value.strip_suffix('^') {
                         Ok(Some(Expr::Condition {
                             selector,
                             value: ValueType::StartsWith(stripped.to_string()),
