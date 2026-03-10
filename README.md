@@ -37,7 +37,7 @@ The output will show the AST used for evaluation (useful for debugging queries).
 ## TODO:
 
 - Timestamp filtering
-- Operator precedence iwth parentheses
+- Operator precedence with parentheses
 - Phrase and regex search.
 - Pagination or streaming. (LIMIT / OFFSET)
 - Make ingestion accept any NDJSON input.
