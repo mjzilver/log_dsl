@@ -15,6 +15,8 @@ use crate::{
 };
 use std::env;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+use tokio::sync::Notify;
 use tokio::{
     fs::create_dir_all,
     sync::{RwLock, mpsc},
@@ -54,6 +56,8 @@ async fn main() -> Result<(), LogQueryError> {
         words: load_index_file(&format!("{}/words.idx", dir)).await?,
         rev_words: load_index_file(&format!("{}/rev_words.idx", dir)).await?,
         timestamps: load_index_file(&format!("{}/timestamps.idx", dir)).await?,
+        dirty: AtomicBool::new(false),
+        notify: Arc::new(Notify::new()),
     }));
 
     let metadata_val =

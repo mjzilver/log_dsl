@@ -11,16 +11,30 @@ use std::{
 };
 use tokio::sync::RwLock;
 
+#[derive(Copy, Clone)]
+enum Selector {
+    Level,
+    Word,
+}
+
+fn parse_selector(selector: &str) -> Result<Selector, LogQueryError> {
+    match selector {
+        "level" => Ok(Selector::Level),
+        "word" => Ok(Selector::Word),
+        _ => Err(LogQueryError::UnknownSelector(selector.to_string())),
+    }
+}
+
 pub async fn run_query(
     input: &str,
     indices: &Arc<RwLock<Indices>>,
-    metadata: Arc<RwLock<Metadata>>,
+    metadata: &Arc<RwLock<Metadata>>,
 ) -> Result<(), LogQueryError> {
     match parse_query(input) {
         Ok(Some(ast)) => {
             let indices_read = indices.read().await;
             let offsets = evaluate(&ast, &indices_read)?;
-            let logs = find_logs_by_offsets(&offsets, metadata).await?;
+            let logs = find_logs_by_offsets(&offsets, metadata.clone()).await?;
 
             if logs.is_empty() && !matches!(ast, Expr::Explain(_)) {
                 println!("No logs found");
@@ -41,24 +55,23 @@ pub async fn run_query(
     }
 }
 
-fn get_map<'a>(
-    selector: &'a str,
-    indices: &'a Indices,
-) -> Result<&'a BTreeMap<String, BTreeSet<u64>>, LogQueryError> {
+fn get_map(
+    selector: Selector,
+    indices: &Indices,
+) -> Result<&BTreeMap<String, BTreeSet<u64>>, LogQueryError> {
     match selector {
-        "level" => Ok(&indices.levels),
-        "word" => Ok(&indices.words),
-        _ => Err(LogQueryError::UnknownSelector(selector.to_string())),
+        Selector::Level => Ok(&indices.levels),
+        Selector::Word => Ok(&indices.words),
     }
 }
 
-fn get_rev_map<'a>(
-    selector: &'a str,
-    indices: &'a Indices,
-) -> Result<&'a BTreeMap<String, BTreeSet<u64>>, LogQueryError> {
+fn get_rev_map(
+    selector: Selector,
+    indices: &Indices,
+) -> Result<&BTreeMap<String, BTreeSet<u64>>, LogQueryError> {
     match selector {
-        "word" => Ok(&indices.rev_words),
-        _ => Err(LogQueryError::UnknownSelector(selector.to_string())),
+        Selector::Word => Ok(&indices.rev_words),
+        Selector::Level => Err(LogQueryError::UnknownSelector("level".to_string())),
     }
 }
 
@@ -101,30 +114,33 @@ pub fn evaluate(expr: &Expr, indices: &Indices) -> Result<BTreeSet<u64>, LogQuer
             Ok(BTreeSet::new())
         }
 
-        Expr::Condition { selector, value } => match value {
-            ValueType::Full(v) => Ok(get_map(selector, indices)?
-                .get(v)
-                .cloned()
-                .unwrap_or_default()),
+        Expr::Condition { selector, value } => {
+            let selector = parse_selector(selector)?;
 
-            ValueType::StartsWith(v) => get_prefix_matches(v, get_map(selector, indices)?),
+            match value {
+                ValueType::Full(v) => Ok(get_map(selector, indices)?
+                    .get(v)
+                    .cloned()
+                    .unwrap_or_default()),
 
-            ValueType::EndsWith(v) => get_suffix_matches(v, get_rev_map(selector, indices)?),
+                ValueType::StartsWith(v) => get_prefix_matches(v, get_map(selector, indices)?),
 
-            ValueType::Contains(v) => {
-                let map = get_map(selector, indices)?;
-                let mut result = BTreeSet::new();
-                println!("{}", v);
+                ValueType::EndsWith(v) => get_suffix_matches(v, get_rev_map(selector, indices)?),
 
-                for (word, offsets) in map {
-                    if word.contains(v) {
-                        result.extend(offsets);
+                ValueType::Contains(v) => {
+                    let map = get_map(selector, indices)?;
+                    let mut result = BTreeSet::new();
+
+                    for (word, offsets) in map {
+                        if word.contains(v) {
+                            result.extend(offsets);
+                        }
                     }
-                }
 
-                Ok(result)
+                    Ok(result)
+                }
             }
-        },
+        }
 
         Expr::Unary { op, expr: inner } => {
             let result = evaluate(inner, indices)?;

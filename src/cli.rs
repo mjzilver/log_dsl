@@ -27,13 +27,11 @@ pub async fn cli_task(indices: Arc<RwLock<Indices>>, metadata: Arc<RwLock<Metada
         let input = line.trim();
 
         if input == "dump_all" {
-            for (word, _) in &indices.read().await.words {
+            for word in indices.read().await.words.keys() {
                 println!("{}", word);
             }
-        } else {
-            if let Err(e) = run_query(input, &indices, Arc::clone(&metadata)).await {
-                println!("Query error: {}", e);
-            }
+        } else if let Err(e) = run_query(input, &indices, &metadata).await {
+            println!("Query error: {}", e);
         }
     }
 }

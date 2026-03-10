@@ -172,17 +172,26 @@ fn parse_condition(iter: &mut impl Iterator<Item = Token>) -> Result<Option<Expr
             }
 
             match iter.next() {
-                Some(Token::StartsWith) => {
-                    parse_value(iter, selector, ValueType::StartsWith, "Expected value after '^'")
-                }
+                Some(Token::StartsWith) => parse_value(
+                    iter,
+                    selector,
+                    ValueType::StartsWith,
+                    "Expected value after '^'",
+                ),
 
-                Some(Token::EndsWith) => {
-                    parse_value(iter, selector, ValueType::EndsWith, "Expected value after '$'")
-                }
+                Some(Token::EndsWith) => parse_value(
+                    iter,
+                    selector,
+                    ValueType::EndsWith,
+                    "Expected value after '$'",
+                ),
 
-                Some(Token::Contains) => {
-                    parse_value(iter, selector, ValueType::Contains, "Expected value after '~'")
-                }
+                Some(Token::Contains) => parse_value(
+                    iter,
+                    selector,
+                    ValueType::Contains,
+                    "Expected value after '~'",
+                ),
 
                 Some(Token::Ident(value)) => Ok(Some(Expr::Condition {
                     selector,

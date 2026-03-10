@@ -3,7 +3,11 @@ use crate::indices::Indices;
 use crate::metadata::Metadata;
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
-use std::{collections::BTreeSet, sync::Arc, time::Duration};
+use std::{
+    collections::BTreeSet,
+    sync::{Arc, atomic::Ordering},
+    time::Duration,
+};
 use tokio::{
     fs::File,
     io::{AsyncBufReadExt, AsyncReadExt, AsyncSeekExt, BufReader},
@@ -46,18 +50,18 @@ pub async fn receive_log_task(
                 .chars()
                 .filter(|c| c.is_alphanumeric())
                 .collect();
-            indices
-                .words
-                .entry(cleaned.clone())
-                .or_default()
-                .insert(idx);
-
             let reversed: String = cleaned.chars().rev().collect();
+
+            indices.words.entry(cleaned).or_default().insert(idx);
+
             indices.rev_words.entry(reversed).or_default().insert(idx);
         }
 
         let ts = log.timestamp.timestamp();
         indices.timestamps.entry(ts).or_default().insert(idx);
+
+        indices.dirty.store(true, Ordering::Relaxed);
+        indices.notify.notify_one();
     }
 }
 
