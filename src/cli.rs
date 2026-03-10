@@ -1,10 +1,11 @@
 use crate::indices::Indices;
+use crate::metadata::Metadata;
 use crate::query::run_query;
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, BufReader, stdin};
 use tokio::sync::RwLock;
 
-pub async fn cli_task(indices: Arc<RwLock<Indices>>) {
+pub async fn cli_task(indices: Arc<RwLock<Indices>>, metadata: Arc<RwLock<Metadata>>) {
     let mut reader = BufReader::new(stdin());
     let mut line = String::new();
 
@@ -25,8 +26,14 @@ pub async fn cli_task(indices: Arc<RwLock<Indices>>) {
 
         let input = line.trim();
 
-        if let Err(e) = run_query(input, &indices).await {
-            println!("Query error: {}", e);
+        if input == "dump_all" {
+            for (word, _) in &indices.read().await.words {
+                println!("{}", word);
+            }
+        } else {
+            if let Err(e) = run_query(input, &indices, Arc::clone(&metadata)).await {
+                println!("Query error: {}", e);
+            }
         }
     }
 }

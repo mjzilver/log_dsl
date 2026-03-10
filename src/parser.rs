@@ -144,6 +144,21 @@ pub fn parse_query(input: &str) -> Result<Option<Expr>, LogQueryError> {
     }
 }
 
+fn parse_value(
+    iter: &mut impl Iterator<Item = Token>,
+    selector: String,
+    constructor: fn(String) -> ValueType,
+    err: &'static str,
+) -> Result<Option<Expr>, LogQueryError> {
+    match iter.next() {
+        Some(Token::Ident(value)) => Ok(Some(Expr::Condition {
+            selector,
+            value: constructor(value),
+        })),
+        _ => Err(LogQueryError::ParserError(err.into())),
+    }
+}
+
 fn parse_condition(iter: &mut impl Iterator<Item = Token>) -> Result<Option<Expr>, LogQueryError> {
     match iter.next() {
         Some(Token::Ident(selector)) => {
@@ -157,35 +172,17 @@ fn parse_condition(iter: &mut impl Iterator<Item = Token>) -> Result<Option<Expr
             }
 
             match iter.next() {
-                Some(Token::StartsWith) => match iter.next() {
-                    Some(Token::Ident(value)) => Ok(Some(Expr::Condition {
-                        selector,
-                        value: ValueType::StartsWith(value),
-                    })),
-                    _ => Err(LogQueryError::ParserError(
-                        "Expected value after '^'".into(),
-                    )),
-                },
+                Some(Token::StartsWith) => {
+                    parse_value(iter, selector, ValueType::StartsWith, "Expected value after '^'")
+                }
 
-                Some(Token::EndsWith) => match iter.next() {
-                    Some(Token::Ident(value)) => Ok(Some(Expr::Condition {
-                        selector,
-                        value: ValueType::EndsWith(value),
-                    })),
-                    _ => Err(LogQueryError::ParserError(
-                        "Expected value after '$'".into(),
-                    )),
-                },
+                Some(Token::EndsWith) => {
+                    parse_value(iter, selector, ValueType::EndsWith, "Expected value after '$'")
+                }
 
-                Some(Token::Contains) => match iter.next() {
-                    Some(Token::Ident(value)) => Ok(Some(Expr::Condition {
-                        selector,
-                        value: ValueType::Contains(value),
-                    })),
-                    _ => Err(LogQueryError::ParserError(
-                        "Expected value after '~'".into(),
-                    )),
-                },
+                Some(Token::Contains) => {
+                    parse_value(iter, selector, ValueType::Contains, "Expected value after '~'")
+                }
 
                 Some(Token::Ident(value)) => Ok(Some(Expr::Condition {
                     selector,

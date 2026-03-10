@@ -2,6 +2,7 @@ use crate::{
     error::LogQueryError,
     indices::Indices,
     ingest::find_logs_by_offsets,
+    metadata::Metadata,
     parser::{Expr, Operator, ValueType, parse_query},
 };
 use std::{
@@ -10,12 +11,16 @@ use std::{
 };
 use tokio::sync::RwLock;
 
-pub async fn run_query(input: &str, indices: &Arc<RwLock<Indices>>) -> Result<(), LogQueryError> {
+pub async fn run_query(
+    input: &str,
+    indices: &Arc<RwLock<Indices>>,
+    metadata: Arc<RwLock<Metadata>>,
+) -> Result<(), LogQueryError> {
     match parse_query(input) {
         Ok(Some(ast)) => {
             let indices_read = indices.read().await;
             let offsets = evaluate(&ast, &indices_read)?;
-            let logs = find_logs_by_offsets(&offsets).await?;
+            let logs = find_logs_by_offsets(&offsets, metadata).await?;
 
             if logs.is_empty() && !matches!(ast, Expr::Explain(_)) {
                 println!("No logs found");

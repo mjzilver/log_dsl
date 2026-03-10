@@ -73,8 +73,9 @@ async fn main() -> Result<(), LogQueryError> {
         m.last_offset
     };
 
+    let reader_metadata = Arc::clone(&metadata);
     let reader = tokio::spawn(async move {
-        if let Err(e) = read_file_task(tx, start_offset, Arc::clone(&metadata), &file_path).await {
+        if let Err(e) = read_file_task(tx, start_offset, reader_metadata, &file_path).await {
             eprintln!("Reader task error: {}", e);
         }
     });
@@ -86,8 +87,9 @@ async fn main() -> Result<(), LogQueryError> {
         receive_log_task(rx, Arc::clone(&indices_for_receiver)).await;
     });
 
+    let cli_metadata = Arc::clone(&metadata);
     let cli = tokio::spawn(async move {
-        cli_task(Arc::clone(&indices_for_cli)).await;
+        cli_task(Arc::clone(&indices_for_cli), cli_metadata).await;
     });
 
     let _ = tokio::join!(reader, receiver, writer, cli);

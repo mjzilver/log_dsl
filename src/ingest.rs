@@ -110,7 +110,10 @@ pub async fn read_file_task(
     }
 }
 
-pub async fn find_logs_by_offsets(offsets: &BTreeSet<u64>) -> Result<Vec<String>, LogQueryError> {
+pub async fn find_logs_by_offsets(
+    offsets: &BTreeSet<u64>,
+    metadata: Arc<RwLock<Metadata>>,
+) -> Result<Vec<String>, LogQueryError> {
     let mut res = Vec::new();
     let mut iter = offsets.iter();
     let mut current_target = match iter.next() {
@@ -118,7 +121,7 @@ pub async fn find_logs_by_offsets(offsets: &BTreeSet<u64>) -> Result<Vec<String>
         None => return Ok(res),
     };
 
-    let file = File::open("./bot.log").await?;
+    let file = File::open(metadata.read().await.filename.clone()).await?;
     let mut reader = BufReader::new(file);
 
     let mut current_offset = 0u64;
