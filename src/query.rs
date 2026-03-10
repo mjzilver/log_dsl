@@ -17,7 +17,7 @@ pub async fn run_query(input: &str, indices: &Arc<RwLock<Indices>>) -> Result<()
             let offsets = evaluate(&ast, &indices_read)?;
             let logs = find_logs_by_offsets(&offsets).await?;
 
-            if logs.is_empty() {
+            if logs.is_empty() && !matches!(ast, Expr::Explain(_)) {
                 println!("No logs found");
             } else {
                 for log in logs {
@@ -109,6 +109,7 @@ pub fn evaluate(expr: &Expr, indices: &Indices) -> Result<BTreeSet<u64>, LogQuer
             ValueType::Contains(v) => {
                 let map = get_map(selector, indices)?;
                 let mut result = BTreeSet::new();
+                println!("{}", v);
 
                 for (word, offsets) in map {
                     if word.contains(v) {

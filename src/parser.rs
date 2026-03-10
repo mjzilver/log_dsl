@@ -30,10 +30,10 @@ pub enum ValueType {
 impl Display for ValueType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ValueType::Full(v) => write!(f, "Full: {}", v),
-            ValueType::StartsWith(v) => write!(f, "StartsWith: {}", v),
-            ValueType::EndsWith(v) => write!(f, "EndsWith: {}", v),
-            ValueType::Contains(v) => write!(f, "Contains: {}", v),
+            ValueType::Full(v) => write!(f, "Full match: [{}]", v),
+            ValueType::StartsWith(v) => write!(f, "StartsWith: [{}]", v),
+            ValueType::EndsWith(v) => write!(f, "EndsWith: [{}]", v),
+            ValueType::Contains(v) => write!(f, "Contains: [{}]", v),
         }
     }
 }
@@ -157,29 +157,40 @@ fn parse_condition(iter: &mut impl Iterator<Item = Token>) -> Result<Option<Expr
             }
 
             match iter.next() {
-                Some(Token::Ident(value)) => {
-                    if let Some(stripped) = value.strip_prefix('~') {
-                        Ok(Some(Expr::Condition {
-                            selector,
-                            value: ValueType::Contains(stripped.to_string()),
-                        }))
-                    } else if let Some(stripped) = value.strip_suffix('^') {
-                        Ok(Some(Expr::Condition {
-                            selector,
-                            value: ValueType::StartsWith(stripped.to_string()),
-                        }))
-                    } else if let Some(stripped) = value.strip_prefix('$') {
-                        Ok(Some(Expr::Condition {
-                            selector,
-                            value: ValueType::EndsWith(stripped.to_string()),
-                        }))
-                    } else {
-                        Ok(Some(Expr::Condition {
-                            selector,
-                            value: ValueType::Full(value),
-                        }))
-                    }
-                }
+                Some(Token::StartsWith) => match iter.next() {
+                    Some(Token::Ident(value)) => Ok(Some(Expr::Condition {
+                        selector,
+                        value: ValueType::StartsWith(value),
+                    })),
+                    _ => Err(LogQueryError::ParserError(
+                        "Expected value after '^'".into(),
+                    )),
+                },
+
+                Some(Token::EndsWith) => match iter.next() {
+                    Some(Token::Ident(value)) => Ok(Some(Expr::Condition {
+                        selector,
+                        value: ValueType::EndsWith(value),
+                    })),
+                    _ => Err(LogQueryError::ParserError(
+                        "Expected value after '$'".into(),
+                    )),
+                },
+
+                Some(Token::Contains) => match iter.next() {
+                    Some(Token::Ident(value)) => Ok(Some(Expr::Condition {
+                        selector,
+                        value: ValueType::Contains(value),
+                    })),
+                    _ => Err(LogQueryError::ParserError(
+                        "Expected value after '~'".into(),
+                    )),
+                },
+
+                Some(Token::Ident(value)) => Ok(Some(Expr::Condition {
+                    selector,
+                    value: ValueType::Full(value),
+                })),
 
                 _ => Err(LogQueryError::ParserError(
                     "Expected value after '='".into(),
@@ -216,29 +227,72 @@ pub enum Token {
     Explain,
     LParen,
     RParen,
+    // ^
+    StartsWith,
+    // $
+    EndsWith,
+    // ~
+    Contains,
 }
 
 pub fn tokenize(input: &str) -> Vec<Token> {
-    let mut tokens = Vec::new();
-    let parts = input.split_whitespace();
+    let mut tokens: Vec<Token> = Vec::new();
+    let mut chars = input.chars().peekable();
 
-    for part in parts {
-        match part {
-            "AND" => tokens.push(Token::And),
-            "OR" => tokens.push(Token::Or),
-            "NOT" => tokens.push(Token::Not),
-            "EXPLAIN" | "explain" => tokens.push(Token::Explain),
-            "(" => tokens.push(Token::LParen),
-            ")" => tokens.push(Token::RParen),
+    while let Some(&ch) = chars.peek() {
+        match ch {
+            '(' => {
+                tokens.push(Token::LParen);
+                chars.next();
+            }
+            ')' => {
+                tokens.push(Token::RParen);
+                chars.next();
+            }
+            ' ' => {
+                chars.next();
+            }
+            '=' => {
+                tokens.push(Token::Equals);
+                chars.next();
+            }
+            '^' => {
+                tokens.push(Token::StartsWith);
+                chars.next();
+            }
+            '$' => {
+                tokens.push(Token::EndsWith);
+                chars.next();
+            }
+            '~' => {
+                tokens.push(Token::Contains);
+                chars.next();
+            }
             _ => {
-                if let Some((k, v)) = part.split_once('=') {
-                    tokens.push(Token::Ident(k.trim().to_string()));
-                    tokens.push(Token::Equals);
-                    tokens.push(Token::Ident(v.trim().to_string()));
+                let mut word = String::new();
+                while let Some(&ch) = chars.peek() {
+                    if ch.is_alphabetic() {
+                        word.push(ch);
+                        chars.next();
+                    } else {
+                        break;
+                    }
                 }
+
+                tokens.push(tokenize_word(word));
             }
         }
     }
 
     tokens
+}
+
+pub fn tokenize_word(str: String) -> Token {
+    match str.to_uppercase().as_str() {
+        "AND" => Token::And,
+        "OR" => Token::Or,
+        "NOT" => Token::Not,
+        "EXPLAIN" => Token::Explain,
+        _ => Token::Ident(str),
+    }
 }
